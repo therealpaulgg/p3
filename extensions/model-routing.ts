@@ -24,7 +24,7 @@ const RouteParams = Type.Object({
 const RoutedTaskParams = Type.Object({
   task: Type.String({ minLength: 1, description: "Self-contained assignment for the subagent" }),
   description: Type.String({ minLength: 3, maxLength: 80, description: "Short task label" }),
-  route: Type.Optional(Type.String({ minLength: 1, description: "Model override. Omit it: policy picks Sol (gpt-6-sol, medium) for general planning, implementation, and judgment; Opus (claude-opus-5-5, medium) for deep bugs and UI work; and Luna (gpt-6-luna, high) only for clearly mechanical review/discovery. Set it only when the user named a model for this specific task." })),
+  route: Type.Optional(Type.String({ minLength: 1, description: "Model override. Omit it: policy picks Sol (gpt-6.1-sol, medium) for general planning, implementation, and judgment; Opus (claude-opus-5-5, medium) for deep bugs and UI work; and Luna (gpt-6-luna, high) only for clearly mechanical review/discovery. Set it only when the user named a model for this specific task." })),
   effort: Type.Optional(StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const, {
     description: "Reasoning effort override. Omit for the route default unless the user asked for an effort level for this specific task.",
   })),
