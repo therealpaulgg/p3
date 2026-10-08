@@ -39,3 +39,17 @@ test("omits unknown pricing and retains precision below one cent", () => {
   expect(formatEstimatedCost(0.0042, true)).toBe("~$0.0042");
   expect(formatEstimatedCost(1.234, true)).toBe("~$1.23");
 });
+
+test("tracks dispatched physical model and effort across provider failover", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "routing-usage-")), "session.jsonl");
+  const record = (provider: string, model: string, thinkingLevel: string) => JSON.stringify({ type: "message", message: { role: "assistant", provider, model, thinkingLevel, usage: {} } });
+  writeFileSync(path, `${record("openai-codex", "gpt-6-luna", "high")}\n`);
+  const first = readIncrementalUsage(path, { offset: 0, cost: 0, costKnown: false });
+  expect(first.model).toBe("openai-codex/gpt-6-luna");
+  expect(first.thinking).toBe("high");
+  appendFileSync(path, `${record("anthropic", "claude-haiku-5-5", "medium")}\n`);
+  const switched = readIncrementalUsage(path, first);
+  expect(switched.model).toBe("anthropic/claude-haiku-5-5");
+  expect(switched.thinking).toBe("medium");
+  expect(readIncrementalUsage(path, switched).model).toBe(switched.model);
+});

@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import type { Server } from "node:net";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { classifyDelegation, classifyModelRoute, planFallback, routes, type Route, type RouteName, type RoutingDecision, type ThinkingLevel } from "./routing/policy.ts";
+import { classifyDelegation, classifyModelRoute, planFallback, routes, selectEligibleRoute, clampThinkingLevel, routeTier, type CapabilityTier, type Route, type RouteName, type RoutingDecision, type ThinkingLevel } from "./routing/policy.ts";
 import { boundNotification, COMPLETION_KIND, formatModelLabel, formatTaskWidget, isActiveTask, markCompletionDelivered, markNotified, recommendEscalation, resetCompletionDelivery, taskMetadata, taskWidgetItems, telemetryRecord, WIDGET_KEY, type TaskHandle, type TaskWidgetItem } from "./routing/state.ts";
 import { parseJson, readHerdrResult, runHerdr, watchHerdrTask as startHerdrWatcher } from "./routing/herdr.ts";
 import { ExplicitRouteRetryGuard } from "./routing/workflow.ts";
@@ -15,6 +15,7 @@ import { focusManifestPane, RoutedTaskWidget } from "./routing/navigator.ts";
 import { inboxPath, sendParentMessage, startParentInbox } from "./routing/messages.ts";
 import { formatEstimatedCost, sumSessionCost } from "./routing/usage.ts";
 import { registerIndependentAgentTools } from "./routing/independent.ts";
+import { providerIsCoolingDown, registerFailoverModels, wrappedModelRef } from "./routing/failover.ts";
 
 const RouteParams = Type.Object({
   action: StringEnum(["status", "recommend"] as const),
@@ -24,8 +25,8 @@ const RouteParams = Type.Object({
 const RoutedTaskParams = Type.Object({
   task: Type.String({ minLength: 1, description: "Self-contained assignment for the subagent" }),
   description: Type.String({ minLength: 3, maxLength: 80, description: "Short task label" }),
-  route: Type.Optional(Type.String({ minLength: 1, description: "Model override. Omit it: policy picks Sol (gpt-6.1-sol, medium) for general planning, implementation, and judgment; Opus (claude-opus-5-5, medium) for deep bugs and UI work; and Luna (gpt-6-luna, high) only for clearly mechanical review/discovery. Set it only when the user named a model for this specific task." })),
-  effort: Type.Optional(StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const, {
+  route: Type.Optional(Type.String({ minLength: 1, description: "Model override. Omit it: capability routing chooses Haiku/Luna for exact bounded work (including tiny implementation), Sonnet/Sol for standard work, and Opus/Sol for strong work. It considers ambiguity, horizon, checkability and consequences, then actual availability and current-provider preference. Set it only when the user named a model for this specific task." })),
+  effort: Type.Optional(StringEnum(["off", "minimal", "low", "medium", "high"] as const, {
     description: "Reasoning effort override. Omit for the route default unless the user asked for an effort level for this specific task.",
   })),
   cwd: Type.Optional(Type.String({ description: "Absolute working directory. Defaults to the current session directory." })),
@@ -60,6 +61,7 @@ export { classifyDelegation, classifyModelRoute, planFallback } from "./routing/
 export { recommendEscalation } from "./routing/state.ts";
 
 export default function modelRoutingExtension(pi: ExtensionAPI) {
+  registerFailoverModels(pi);
   let selectedRoute: RouteName | undefined;
   let lastDecision: (RoutingDecision & { timestamp: number }) | undefined;
   const taskHandles = new Map<string, TaskHandle>();
@@ -244,7 +246,7 @@ export default function modelRoutingExtension(pi: ExtensionAPI) {
     const previous = task.state;
     Object.assign(task, patch);
     task.escalation = recommendEscalation(task);
-    if (persist && (previous !== task.state || patch.error !== undefined || patch.resultChars !== undefined)) persistTask(task);
+    if (persist && (previous !== task.state || patch.error !== undefined || patch.resultChars !== undefined || patch.model !== undefined || patch.thinking !== undefined)) persistTask(task);
     if (previous !== task.state) emitTaskLifecycle(pi.events, task);
     syncManifest();
     refreshWidget();
@@ -306,13 +308,25 @@ export default function modelRoutingExtension(pi: ExtensionAPI) {
       (route.provider === "openai-codex" && hasAuth(ctx, "openai", route.model));
   };
 
-  const resolveRoute = (ctx: ExtensionContext, requested: string, explicit: boolean, effort?: ThinkingLevel) => {
+  const resolveRoute = (ctx: ExtensionContext, requested: string, explicit: boolean, effort?: ThinkingLevel, tier?: CapabilityTier) => {
+    if (effort !== undefined && !["off", "minimal", "low", "medium", "high"].includes(effort)) throw new Error(`Effort ${String(effort)} is unsupported; maximum effort is high`);
     if (!explicit || Object.prototype.hasOwnProperty.call(routes, requested)) {
-      const plan = planFallback(requested as RouteName, explicit, (name) => availableRoute(ctx, name));
+      const providerForRoute = (name: RouteName) => {
+        const config = routes[name];
+        return config.provider === "openai-codex" && !hasAuth(ctx, config.provider, config.model) ? "openai" : config.provider;
+      };
+      const selected = explicit ? undefined : selectEligibleRoute(tier ?? routeTier[requested as RouteName], {
+        isAvailable: (name) => availableRoute(ctx, name),
+        preferredRoute: requested as RouteName, preferredProvider: ctx.model?.provider,
+        providerForRoute, isCoolingDown: providerIsCoolingDown,
+      });
+      const plan = explicit ? planFallback(requested as RouteName, true, (name) => availableRoute(ctx, name))
+        : selected ? { route: selected, ...(selected !== requested ? { fallbackFrom: requested as RouteName } : {}) }
+        : { error: `No eligible model route for ${tier ?? routeTier[requested as RouteName]} capability` };
       if ("error" in plan) throw new Error(plan.error);
       const config = routes[plan.route];
-      const provider = config.provider === "openai-codex" && !hasAuth(ctx, config.provider, config.model) ? "openai" : config.provider;
-      return { ...plan, config: { ...config, provider, thinking: effort ?? config.thinking } };
+      const provider = providerForRoute(plan.route);
+      return { ...plan, config: { ...config, provider, thinking: clampThinkingLevel(effort ?? config.thinking), ...(!explicit ? { launchModel: wrappedModelRef(plan.route) } : {}) } };
     }
 
     if (requested.startsWith("openai/") && hasAuth(ctx, "openai-codex", requested.slice("openai/".length))) {
@@ -374,11 +388,11 @@ export default function modelRoutingExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
-    description: "Launch one sticky-model task in a visible Herdr agent with workflow guards. The model stays fixed. Explicit choices never silently fall back. This is fire-and-forget: after launch, do independent work or end the turn; completion automatically wakes the primary exactly once with a bounded subagent message. Do not poll status/result, sleep, tail logs, or steer merely to ask whether it finished. Retrieve the full cached result with subagent_control action=result.",
-    promptSnippet: "Launch a guarded sticky-model task in Herdr",
+    description: "Launch one task in a visible Herdr agent with workflow guards. Automatic tasks have a fixed starting route with bounded provider failover on exhausted usage. Explicit choices stay fixed and never silently fall back. This is fire-and-forget: after launch, do independent work or end the turn; completion automatically wakes the primary exactly once with a bounded subagent message. Do not poll status/result, sleep, tail logs, or steer merely to ask whether it finished. Retrieve the full cached result with subagent_control action=result.",
+    promptSnippet: "Launch a guarded routed task in Herdr",
     promptGuidelines: [
       "Use subagent and subagent_control for all agent orchestration; never manage agents through the herdr CLI directly. Subagents use bounded dedicated tabs in the root workspace; never create agent splits in the user-owned root tab.",
-      "Omit route and effort. Policy already sends general planning, implementation, and judgment to Sol, deep bugs and UI work to Opus, and only clearly mechanical review/discovery to Luna; an accurate phase and a clear brief are how to influence it. Set route or effort only when the user names a model or effort for the task being launched. Explicit choices never silently fall back.",
+      "Omit route and effort. Policy judges ambiguity, dependency horizon, checkability and consequences: exact bounded tiny edits can use Haiku/Luna; ordinary scoped work uses Sonnet/Sol; hard or consequential work uses Opus/Sol. There is no blanket UI/debug premium. Automatic tasks have a fixed starting route with bounded provider failover on exhausted usage; effort never exceeds high. An accurate phase and clear brief are how to influence routing. Set route or effort only when the user names a model or effort for the task being launched. Explicit choices never silently fall back.",
       "A user's model or effort request applies only to the launches it names. Do not carry it forward to later subagents, and do not set route from memory notes or earlier launches. When relaunching a stopped or failed subagent, pass route/effort only if the original launch was explicitly user-directed.",
       "Parallel subagents may share a working tree; split the work so they do not edit the same files, and declare owned_paths when overlap matters. Use depends_on when a task must wait for another to finish. Do not use subagent for simple work cheaper to do directly.",
       "After launching, either continue genuinely independent work or end the turn. Automatic completion delivery will wake the primary. Never poll subagent_control, sleep, tail logs, or send impatience steering messages while a task is merely running.",
@@ -490,7 +504,7 @@ export default function modelRoutingExtension(pi: ExtensionAPI) {
     name: "subagent_control",
     label: "Subagent Control",
     description: "List, inspect, retrieve, focus, close, clear, steer, or stop Herdr agents launched by subagent. Completed panes remain available by default until explicitly closed; result returns the full cached worker output.",
-    promptSnippet: "Control and retrieve sticky-model subagents",
+    promptSnippet: "Control and retrieve routed subagents",
     parameters: RoutedTaskControlParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       rememberUi(ctx);

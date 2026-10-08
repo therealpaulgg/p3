@@ -1,10 +1,13 @@
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import type { ThinkingLevel } from "./policy.ts";
 
 export interface UsageCursor {
   sessionPath?: string;
   offset: number;
   cost: number;
   costKnown: boolean;
+  model?: string;
+  thinking?: ThinkingLevel;
 }
 
 export interface UsageRead extends UsageCursor {
@@ -23,27 +26,36 @@ export function readIncrementalUsage(path: string | undefined, previous: UsageCu
   let offset = previous.sessionPath === path ? previous.offset : 0;
   let cost = previous.sessionPath === path ? previous.cost : 0;
   let costKnown = previous.sessionPath === path ? previous.costKnown : false;
+  let model = previous.model;
+  let thinking = previous.thinking;
   let fd: number | undefined;
   try {
     fd = openSync(path, "r");
     const size = fstatSync(fd).size;
     if (size < offset) { offset = 0; cost = 0; costKnown = false; }
-    if (size === offset) return { sessionPath: path, offset, cost, costKnown, changed: previous.sessionPath !== path };
+    if (size === offset) return { sessionPath: path, offset, cost, costKnown, model, thinking, changed: previous.sessionPath !== path };
     const buffer = Buffer.alloc(size - offset);
     const bytes = readSync(fd, buffer, 0, buffer.length, offset);
     const chunk = buffer.subarray(0, bytes);
     const lastNewline = chunk.lastIndexOf(0x0a);
-    if (lastNewline < 0) return { sessionPath: path, offset, cost, costKnown, changed: previous.sessionPath !== path };
+    if (lastNewline < 0) return { sessionPath: path, offset, cost, costKnown, model, thinking, changed: previous.sessionPath !== path };
     const complete = chunk.subarray(0, lastNewline + 1).toString("utf8");
     for (const line of complete.split("\n")) {
       if (!line.trim()) continue;
       try {
-        const value = messageCost(JSON.parse(line));
+        const entry = JSON.parse(line);
+        const value = messageCost(entry);
         if (value !== undefined) { cost += value; costKnown = true; }
+        const message = entry?.type === "message" ? entry.message : undefined;
+        if (message?.role === "assistant") {
+          if (typeof message.provider === "string" && typeof message.model === "string") model = `${message.provider}/${message.model}`;
+          const effort = message.thinkingLevel ?? message.providerThinkingLevel;
+          if (["off", "minimal", "low", "medium", "high"].includes(effort)) thinking = effort;
+        }
       } catch { /* malformed complete records do not disturb the cursor or totals */ }
     }
     const nextOffset = offset + lastNewline + 1;
-    return { sessionPath: path, offset: nextOffset, cost, costKnown, changed: nextOffset !== previous.offset || cost !== previous.cost || costKnown !== previous.costKnown || path !== previous.sessionPath };
+    return { sessionPath: path, offset: nextOffset, cost, costKnown, model, thinking, changed: nextOffset !== previous.offset || cost !== previous.cost || costKnown !== previous.costKnown || path !== previous.sessionPath };
   } catch {
     return { ...previous, changed: false };
   } finally {

@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { classifyDelegation, classifyModelRoute, type Route, type RouteName, type RoutingDecision, type ThinkingLevel } from "./policy.ts";
+import { classifyDelegation, classifyModelRoute, type CapabilityTier, type Route, type RouteName, type RoutingDecision, type ThinkingLevel } from "./policy.ts";
 import { normalizeTaskOwner, type TaskHandle, type TaskOwner } from "./state.ts";
 import { classifyWithJev } from "./jev.ts";
 import { launchHerdrAgent, type HerdrLaunch, type RoutedWorkerCapability } from "./herdr.ts";
@@ -32,7 +32,7 @@ export interface LaunchDependencies {
   workflowLaunches: Map<string, Promise<RoutedTaskLaunchResult>>;
   routeRetryGuard: ExplicitRouteRetryGuard;
   recordDecision: (task: string, decision: RoutingDecision) => void;
-  resolveRoute: (ctx: ExtensionContext, requested: string, explicit: boolean, effort?: ThinkingLevel) => LaunchRoutePlan;
+  resolveRoute: (ctx: ExtensionContext, requested: string, explicit: boolean, effort?: ThinkingLevel, tier?: CapabilityTier) => LaunchRoutePlan;
   trackTask: (task: TaskHandle) => void;
   watchHerdrTask: (task: TaskHandle) => void;
   manifestPath?: string;
@@ -52,7 +52,7 @@ export function validateRoutedTaskLaunchParams(input: RoutedTaskLaunchParams): v
   if ((input as any).surface !== undefined) throw new Error("surface is no longer supported; subagents always run in Herdr");
   if ((input as any).isolation !== undefined) throw new Error("isolation is no longer supported; pass an existing worktree as cwd");
   if (input.route !== undefined && (typeof input.route !== "string" || !input.route.trim())) throw new Error("route must be a non-empty model or route name");
-  if (input.effort !== undefined && !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(input.effort)) throw new Error(`unknown effort level ${String(input.effort)}`);
+  if (input.effort !== undefined && !["off", "minimal", "low", "medium", "high"].includes(input.effort)) throw new Error(`unsupported effort level ${String(input.effort)}; maximum effort is high`);
   if (input.cwd !== undefined && (typeof input.cwd !== "string" || input.cwd.length > MAX_PATH_LENGTH)) throw new Error("cwd is invalid or exceeds its limit");
   if (input.phase !== undefined && !["plan", "implement", "review", "other"].includes(input.phase)) throw new Error(`unknown workflow phase ${String(input.phase)}`);
   for (const [name, value] of [["depends_on", input.depends_on], ["owned_paths", input.owned_paths]] as const) {
@@ -86,7 +86,7 @@ async function launchRoutedTaskOnce(deps: LaunchDependencies, ctx: ExtensionCont
   const retryKey = `${cwd}\n${description}\n${task}`;
   deps.routeRetryGuard.assertAllowed(retryKey, params.route !== undefined);
   let routePlan: LaunchRoutePlan;
-  try { routePlan = deps.resolveRoute(ctx, requestedRoute, params.route !== undefined, params.effort); }
+  try { routePlan = deps.resolveRoute(ctx, requestedRoute, params.route !== undefined, params.effort, decision.tier); }
   catch (error) { if (params.route !== undefined) deps.routeRetryGuard.record(retryKey, requestedRoute); throw error; }
   deps.routeRetryGuard.clear(retryKey);
 
@@ -108,7 +108,7 @@ async function launchRoutedTaskOnce(deps: LaunchDependencies, ctx: ExtensionCont
   const policyNote = params.route === undefined ? ` Policy selected ${routeName}: ${decision.rationale}` : "";
   const fallbackNote = routePlan.fallbackFrom ? ` Policy fallback: ${routePlan.fallbackFrom} was unavailable, so ${routeName} was selected.` : "";
   return {
-    text: `Launched Herdr ${phase} task ${handle}: agent ${launched.agent}, pane ${launched.paneId}, using ${route.provider}/${route.model} (${route.thinking}). The model is fixed. ${background ? "Background subagent: it never reports back; pull its latest output with subagent_control action=result." : "Do not poll; completion will wake the primary."}${policyNote}${fallbackNote}`,
+    text: `Launched Herdr ${phase} task ${handle}: agent ${launched.agent}, pane ${launched.paneId}, using ${route.provider}/${route.model} (${route.thinking}). ${params.route !== undefined ? "The explicit model is fixed." : "Fixed starting route with bounded provider failover on exhausted usage."} ${background ? "Background subagent: it never reports back; pull its latest output with subagent_control action=result." : "Do not poll; completion will wake the primary."}${policyNote}${fallbackNote}`,
     details: { handle, phase, background, dependsOn, ownedPaths, capabilities: params.capabilities, ...launched, fallbackFrom: routePlan.fallbackFrom, model: `${route.provider}/${route.model}`, thinking: route.thinking, decision, owner: params.owner },
     task: tracked,
   };

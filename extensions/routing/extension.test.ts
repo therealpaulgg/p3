@@ -65,7 +65,7 @@ test("registers the simplified public surface", () => {
   const tools: any[] = [];
   const commands: string[] = [];
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool),
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool),
     registerCommand: (name: string) => commands.push(name),
     on: () => {}, appendEntry: () => {}, sendMessage: () => {},
     events: { on: () => () => {}, emit: () => {} }, exec: async () => ({ code: 0, stdout: "{}", stderr: "" }),
@@ -77,7 +77,7 @@ test("registers the simplified public surface", () => {
   expect(properties.isolation).toBeUndefined();
   expect(properties.route.type).toBe("string");
   expect(properties.route.enum).toBeUndefined();
-  expect(properties.effort.enum).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+  expect(properties.effort.enum).toEqual(["off", "minimal", "low", "medium", "high"]);
   expect(properties.capabilities.type).toBe("array");
   expect(properties.capabilities.items).toEqual({ type: "string", enum: ["memory"] });
   expect(commands).toEqual(["subagents", "route"]);
@@ -86,13 +86,14 @@ test("registers the simplified public surface", () => {
 test("public subagent rejects unsupported capabilities before launch", async () => {
   const tools: any[] = [];
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, on: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, on: () => {}, appendEntry: () => {}, sendMessage: () => {},
     events: { on: () => () => {}, emit: () => {} }, exec: async () => { throw new Error("Herdr must not be called"); },
   };
   routing(fake);
   const launch = tools.find((tool) => tool.name === "subagent");
   await expect(launch.execute("1", { task: "Inspect", description: "Inspect task", capabilities: ["shell"] }, undefined, undefined, uiCtx())).rejects.toThrow("capabilities must contain only memory");
-  await expect(launch.execute("2", { task: "Inspect", description: "Inspect task", effort: "extreme" }, undefined, undefined, uiCtx())).rejects.toThrow("unknown effort level extreme");
+  await expect(launch.execute("2", { task: "Inspect", description: "Inspect task", effort: "extreme" }, undefined, undefined, uiCtx())).rejects.toThrow("unsupported effort level extreme");
+  for (const effort of ["xhigh", "max"]) await expect(launch.execute("3", { task: "Inspect", description: "Inspect task", effort }, undefined, undefined, uiCtx())).rejects.toThrow("maximum effort is high");
 });
 
 test("launches an explicitly requested model outside the programmed routes", async () => {
@@ -102,7 +103,7 @@ test("launches an explicitly requested model outside the programmed routes", asy
   const calls: string[][] = [];
   const model = { provider: "openai-codex", id: "gpt-6-astra", name: "Astra", reasoning: true };
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: async (_command: string, args: string[]) => {
       calls.push(args);
@@ -121,13 +122,13 @@ test("launches an explicitly requested model outside the programmed routes", asy
   try {
     routing(fake);
     const launch = tools.find((tool) => tool.name === "subagent");
-    const launched = await launch.execute("1", { task: "Inspect the change", description: "Inspect change", route: "gpt-6-astra", effort: "xhigh", capabilities: ["memory"] }, undefined, undefined, ctx);
+    const launched = await launch.execute("1", { task: "Inspect the change", description: "Inspect change", route: "gpt-6-astra", effort: "high", capabilities: ["memory"] }, undefined, undefined, ctx);
     expect(launched.details.model).toBe("openai-codex/gpt-6-astra");
-    expect(launched.details.thinking).toBe("xhigh");
+    expect(launched.details.thinking).toBe("high");
     expect(launched.details.capabilities).toEqual(["memory"]);
     const startArgs = calls.find((args) => args.slice(0, 2).join(" ") === "agent start")!;
     expect(startArgs).toContain("openai-codex/gpt-6-astra");
-    expect(startArgs).toContain("xhigh");
+    expect(startArgs).toContain("high");
     expect(startArgs).not.toContain("--no-extensions");
     expect(startArgs).toContain("subagent,subagent_control,model_route,workflow_control,pr_subscribe,pr_unsubscribe");
     await lifecycle.get("session_shutdown")?.();
@@ -141,7 +142,7 @@ test("registers routed-agent navigation input in TUI mode", async () => {
   const lifecycle = new Map<string, Function>();
   let terminalInputHandlers = 0;
   const fake: any = {
-    registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
     on: (name: string, handler: Function) => lifecycle.set(name, handler),
     events: { on: () => () => {}, emit: () => {} },
     exec: async () => ({ code: 0, stdout: JSON.stringify({ result: {} }), stderr: "" }),
@@ -185,7 +186,7 @@ test("child panes render a parent row below the editor", async () => {
   let focused: any = editor;
   const tui: any = { getFocusedComponent: () => focused, setFocus: (value: any) => { focused = value; }, requestRender: () => {} };
   const fake: any = {
-    registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
   };
   const ctx: any = {
@@ -223,7 +224,7 @@ test("restores routed tasks when reopening the same Pi session", async () => {
   const tools: any[] = [];
   const lifecycle = new Map<string, Function>();
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
   };
   const widgets: Array<{ key: string; content: string[] | undefined }> = [];
@@ -253,7 +254,7 @@ test("does not restore routed agents or cost in a new Pi session", async () => {
   const tools: any[] = [];
   const lifecycle = new Map<string, Function>();
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: async () => ({ code: 0, stdout: JSON.stringify({ result: {} }), stderr: "" }),
   };
@@ -277,7 +278,7 @@ test("does not restore routed agents or cost in a new Pi session", async () => {
 test("blocks direct Agent launches that bypass guarded routing", async () => {
   let toolCall: Function | undefined;
   const fake: any = {
-    registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
     on: (name: string, handler: Function) => { if (name === "tool_call") toolCall = handler; },
     events: { on: () => () => {}, emit: () => {} }, exec: async () => ({ code: 0, stdout: "{}", stderr: "" }),
   };
@@ -295,7 +296,7 @@ test("every subagent uses Herdr and only overlapping owned paths conflict", asyn
   let pane = 0;
   const restoreEnv = herdrEnv();
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: async (_cmd: string, args: string[]) => {
       const key = args.slice(0, 2).join(" ");
@@ -335,7 +336,7 @@ test("Herdr completion delivers exactly one bounded custom message as a steer tu
   const colors: string[] = [];
   const worker = `Implemented the bounded slice. ${"D".repeat(9000)}`;
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {},
     appendEntry: (type: string, data: any) => entries.push({ type, data }),
     sendMessage: (message: any, options: any) => messages.push({ message, options }),
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
@@ -403,7 +404,7 @@ test("steering a completed task delivers the next completion", async () => {
   const sessionPath = sessionWith("I am blocked pending a decision.");
   let promptCount = 0;
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {},
     sendMessage: (message: any, options: any) => messages.push({ message, options }),
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: async (_command: string, args: string[]) => {
@@ -451,7 +452,7 @@ test("a stale TUI widget renders nothing after its routed tasks expire", async (
   let now = originalNow();
   Date.now = () => now;
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {},
     sendMessage: (message: any, options: any) => messages.push({ message, options }),
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: completedHerdrExec(sessionWith("Completed")),
@@ -494,7 +495,7 @@ test("replayed completion claims are not delivered twice after reload", async ()
     transitions: 1, notifiedStates: ["completed"], completionNotifiedAt: Date.now() - 1000, completionDeliveredVia: "message",
   };
   const fake: any = {
-    registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {},
+    registerVirtualModel: () => {}, registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {},
     sendMessage: (message: any, options: any) => messages.push({ message, options }),
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: completedHerdrExec(sessionWith("Fresh transcript text after reload")),
@@ -522,7 +523,7 @@ test("manual result retrieval consumes the single completion slot", async () => 
   let status = "working";
   const sessionPath = sessionWith("Manual read result body");
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {},
     sendMessage: (message: any, options: any) => messages.push({ message, options }),
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: async (_command: string, args: string[]) => {
@@ -563,7 +564,7 @@ test("retained Herdr panes can be focused and explicitly closed", async () => {
   const calls: string[][] = [];
   const restoreEnv = herdrEnv();
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: async (_cmd: string, args: string[]) => {
       calls.push(args);
@@ -607,7 +608,7 @@ test("stop with close aborts tracking, records the closed pane, and exposes live
   const restoreEnv = herdrEnv();
   let agentStatus = "unknown";
   const fake: any = {
-    registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {},
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {},
     sendMessage: (message: any) => messages.push(message),
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: async (_cmd: string, args: string[]) => {
@@ -656,7 +657,7 @@ test("routing RPC refuses launches outside the user-facing root session", async 
     for (const handler of [...(listeners.get(name) ?? [])]) handler(payload);
   };
   const fake: any = {
-    registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    registerVirtualModel: () => {}, registerTool: () => {}, registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on, emit },
     exec: async () => ({ code: 1, stdout: "", stderr: "should not execute" }),
   };
@@ -692,7 +693,7 @@ test("/subagents opens a retained pane and clear survives reload", async () => {
     transitions: 2, notifiedStates: ["completed"], completionNotifiedAt: Date.now() - 30_000, completionDeliveredVia: "message",
   };
   const fake: any = {
-    registerTool: () => {}, registerCommand: (name: string, command: any) => commands.set(name, command),
+    registerVirtualModel: () => {}, registerTool: () => {}, registerCommand: (name: string, command: any) => commands.set(name, command),
     appendEntry: (type: string, data: any) => entries.push({ type, data }), sendMessage: () => {},
     on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
     exec: async (_command: string, args: string[]) => {
@@ -728,7 +729,7 @@ test("/subagents opens a retained pane and clear survives reload", async () => {
     const reloadTools: any[] = [];
     const reloadLifecycle = new Map<string, Function>();
     const reloadFake: any = {
-      registerTool: (tool: any) => reloadTools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+      registerVirtualModel: () => {}, registerTool: (tool: any) => reloadTools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
       on: (name: string, handler: Function) => reloadLifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
       exec: async () => ({ code: 0, stdout: JSON.stringify({ result: {} }), stderr: "" }),
     };
