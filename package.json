@@ -20,6 +20,7 @@
       "./extensions/github-pr-watch.ts",
       "./extensions/jev-compaction.ts",
       "./extensions/model-routing.ts",
+      "./extensions/reasoning-ceiling.ts",
       "./extensions/model-style.ts",
       "./extensions/tasks.ts",
       "./extensions/telegram-notify.ts",

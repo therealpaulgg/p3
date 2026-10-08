@@ -52,6 +52,14 @@ describe("routed worker Pi arguments", () => {
     expect(args).not.toContain("--no-extensions");
   }));
 
+  test("automatic workers use the wrapper and clamp legacy above-high effort", () => {
+    const wrapped = { ...route("anthropic", "claude-haiku-5-5"), launchModel: "p3-failover/haiku", thinking: "max" } as unknown as Route;
+    const args = buildRoutedWorkerPiArgs("Bounded edit", wrapped);
+    expect(args).toContain("p3-failover/haiku");
+    expect(args).toContain("high");
+    expect(args).not.toContain("max");
+  });
+
   test("does not replace configured extension discovery with hardcoded capability paths", () => withAgentDir(() => {
     expect(buildRoutedWorkerPiArgs("Memory task", route("openai-codex", "gpt-6-astra"), ["memory"])).toEqual([
       "--exclude-tools", rootTools,

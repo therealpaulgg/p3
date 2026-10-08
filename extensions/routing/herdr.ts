@@ -3,7 +3,7 @@ import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Route } from "./policy.ts";
+import { clampThinkingLevel, type Route } from "./policy.ts";
 import { buildCompletionMessage, buildInterruptedMessage, COMPLETION_KIND, isActiveTask, type TaskHandle } from "./state.ts";
 import { readIncrementalUsage } from "./usage.ts";
 
@@ -344,8 +344,10 @@ export function watchHerdrTask(options: {
           offset: task.usageOffset ?? 0,
           cost: task.estimatedCost ?? 0,
           costKnown: task.costKnown ?? false,
+          model: task.model,
+          thinking: task.thinking,
         });
-        if (usage.changed) update({ sessionPath: usage.sessionPath, usageOffset: usage.offset, estimatedCost: usage.cost, costKnown: usage.costKnown }, false);
+        if (usage.changed) update({ sessionPath: usage.sessionPath, usageOffset: usage.offset, estimatedCost: usage.cost, costKnown: usage.costKnown, ...(usage.model ? { model: usage.model } : {}), ...(usage.thinking ? { thinking: usage.thinking } : {}) }, usage.model !== task.model || usage.thinking !== task.thinking);
         consecutivePollErrors = 0;
         const settled = (status === "idle" || status === "done") && (sawWorking || (!!result && result !== baselineResult));
         if (status === "working") { sawWorking = true; blockedNotified = false; interruptNotified = false; update({ state: "running" }, task.state !== "running"); }
@@ -401,8 +403,8 @@ export function buildRoutedWorkerPiArgs(description: string, route: Route, _capa
   return [
     // PR subscriptions belong to the root session.
     "--exclude-tools", "subagent,subagent_control,model_route,workflow_control,pr_subscribe,pr_unsubscribe",
-    "--model", `${route.provider}/${route.model}`,
-    "--thinking", route.thinking,
+    "--model", route.launchModel ?? `${route.provider}/${route.model}`,
+    "--thinking", clampThinkingLevel(route.thinking),
     "--name", description,
   ];
 }

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
-export type AdvisorThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type AdvisorThinkingLevel = "minimal" | "low" | "medium" | "high";
 
 export interface AdvisorConfig {
   enabled: boolean;
@@ -24,7 +24,7 @@ export const DEFAULT_ADVISOR_CONFIG: AdvisorConfig = {
   thinkingLevel: "high",
 };
 
-const THINKING_LEVELS = new Set<AdvisorThinkingLevel>(["minimal", "low", "medium", "high", "xhigh"]);
+const THINKING_LEVELS = new Set<AdvisorThinkingLevel>(["minimal", "low", "medium", "high"]);
 
 function boundedNumber(value: unknown, fallback: number, minimum: number, maximum: number, field: string, warnings: string[]): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -71,7 +71,7 @@ export function parseAdvisorConfig(value: unknown): { config: AdvisorConfig; war
     ? input.thinkingLevel as AdvisorThinkingLevel
     : DEFAULT_ADVISOR_CONFIG.thinkingLevel;
   if (input.thinkingLevel !== undefined && thinkingLevel !== input.thinkingLevel) {
-    warnings.push(`thinkingLevel is invalid; using ${thinkingLevel}`);
+    warnings.push(`thinkingLevel is invalid (maximum is high); using ${thinkingLevel}`);
   }
 
   return {
