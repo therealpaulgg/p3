@@ -129,6 +129,8 @@ export async function classifyRoute(brief: string, phase: TaskPhase, local: Rout
   const signal = AbortSignal.timeout(CLASSIFIER_DEADLINE_MS);
   const available = new Map<string, Promise<readonly { provider: string; id: string }[]>>();
   const failures: string[] = [];
+  let decision: RoutingDecision | undefined;
+  // Only classifier transport/answer failures fall through; eligibility errors from resolveDecision must propagate.
   for (const ref of config.models) {
     const name = `${ref.provider}/${ref.id}`;
     const remaining = deadline - Date.now();
@@ -140,15 +142,17 @@ export async function classifyRoute(brief: string, phase: TaskPhase, local: Rout
       const result = await ctx.modelRegistry.classify(model as Parameters<typeof ctx.modelRegistry.classify>[0], request, { signal, timeoutMs: remaining, maxRetries: 0 });
       const answer = result.answers.tier;
       if (result.stopReason !== "stop" || answer?.type !== "choice") { failures.push(`${name}: ${result.errorMessage ?? result.stopReason}`); continue; }
-      if (Number.isFinite(answer.confidence) && answer.confidence >= MIN_CONFIDENCE && ["small", "standard", "strong"].includes(answer.choice)) {
+      if (!Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1) { failures.push(`${name}: malformed confidence ${answer.confidence}`); continue; }
+      if (answer.confidence >= MIN_CONFIDENCE && ["small", "standard", "strong"].includes(answer.choice)) {
         const tier = answer.choice as CapabilityTier;
-        return resolveDecision({ ...local, tier, delegate: true, confidence: answer.confidence >= 0.8 ? "high" : "medium", rationale: `${name} selected ${tier} capability (confidence ${answer.confidence.toFixed(2)}).` });
-      }
-      return resolveDecision(local);
+        decision = { ...local, tier, delegate: true, confidence: answer.confidence >= 0.8 ? "high" : "medium", rationale: `${name} selected ${tier} capability (confidence ${answer.confidence.toFixed(2)}).` };
+      } else decision = local;
+      break;
     } catch (error) {
       failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+  if (decision) return resolveDecision(decision);
   if (failures.length === 0) return resolveDecision(local);
   return resolveDecision({ ...local, rationale: `${local.rationale} Routing classifier unavailable (${failures.join("; ").slice(0, 300)}); local policy applied.` });
 }
