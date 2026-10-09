@@ -137,6 +137,39 @@ test("launches an explicitly requested model outside the programmed routes", asy
   }
 });
 
+test("automatic launches use the routing classifier configured in Pi settings; explicit routes bypass it", async () => {
+  const restoreEnv = herdrEnv();
+  const tools: any[] = [];
+  const lifecycle = new Map<string, Function>();
+  const classified: string[] = [];
+  const fake: any = {
+    registerVirtualModel: () => {}, registerTool: (tool: any) => tools.push(tool), registerCommand: () => {}, appendEntry: () => {}, sendMessage: () => {},
+    on: (name: string, handler: Function) => lifecycle.set(name, handler), events: { on: () => () => {}, emit: () => {} },
+    getSettings: () => ({ p3: { routingClassifiers: ["openai/gpt-6-luna"] } }),
+    exec: completedHerdrExec("/nonexistent"),
+  };
+  const ctx = uiCtx();
+  ctx.model = { provider: "anthropic", id: "claude-sonnet" };
+  ctx.modelRegistry.getAvailableOfType = async (_type: string, provider: string) => provider === "openai" ? [{ provider: "openai", id: "gpt-6-luna" }] : [];
+  ctx.modelRegistry.classify = async (model: any) => {
+    classified.push(`${model.provider}/${model.id}`);
+    return { stopReason: "stop", answers: { tier: { type: "choice", choice: "small", confidence: 0.95 } } };
+  };
+  try {
+    routing(fake);
+    const launch = tools.find((tool) => tool.name === "subagent");
+    const automatic = await launch.execute("1", { task: "Rename the field exactly as specified", description: "Rename field" }, undefined, undefined, ctx);
+    expect(classified).toEqual(["openai/gpt-6-luna"]);
+    expect(automatic.details.decision.tier).toBe("small");
+    expect(automatic.details.decision.rationale).toContain("openai/gpt-6-luna selected small");
+    await launch.execute("2", { task: "Inspect the change", description: "Inspect change", route: "sol" }, undefined, undefined, ctx);
+    expect(classified).toHaveLength(1);
+    await lifecycle.get("session_shutdown")?.();
+  } finally {
+    restoreEnv();
+  }
+});
+
 test("registers routed-agent navigation input in TUI mode", async () => {
   const restoreEnv = herdrEnv();
   const lifecycle = new Map<string, Function>();
