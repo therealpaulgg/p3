@@ -51,7 +51,7 @@ The routing classifier is any native Pi [classifier model](https://github.com/ea
 
 - The provider is the text before the first `/`; the rest is the model ID (`openrouter/~typesafe/jev-latest`); llama.cpp and custom-provider classifiers work the same way.
 - Unset uses `["typesafe/jev-latest", "cloudflare-workers-ai/typesafe/jev"]`. `[]` disables classification and uses only the local policy.
-- Entries without Pi credentials are skipped. An error or non-`stop` result tries the next entry; all attempts share one 5-second deadline. A valid answer below 0.7 confidence, or `unknown`, is final and keeps the local tier.
+- Entries without Pi credentials are skipped. `openai/gpt-6-luna` is the Decisions API classifier and needs `OPENAI_API_KEY`; Pi hides it while `openai` is signed in with ChatGPT through `/login`. An error or non-`stop` result tries the next entry; all attempts share one 5-second deadline. A valid answer below 0.7 confidence, or `unknown`, is final and keeps the local tier.
 - A malformed setting, or all entries failing, falls back to the local policy and is noted in the launch rationale.
 - An explicit `route` never consults the classifier. Eligibility, provider preference, failover, and the High effort cap are unchanged.
 
