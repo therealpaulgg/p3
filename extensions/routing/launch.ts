@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { classifyDelegation, classifyModelRoute, type CapabilityTier, type Route, type RouteName, type RoutingDecision, type ThinkingLevel } from "./policy.ts";
 import { normalizeTaskOwner, type TaskHandle, type TaskOwner } from "./state.ts";
-import { classifyWithJev } from "./jev.ts";
+import { classifyRoute, routingClassifierConfig } from "./classifier.ts";
 import { launchHerdrAgent, type HerdrLaunch, type RoutedWorkerCapability } from "./herdr.ts";
 import { ExplicitRouteRetryGuard, inferPhase, normalizeOwnedPaths, validateWorkflowLaunch, type TaskPhase } from "./workflow.ts";
 
@@ -74,7 +74,7 @@ async function launchRoutedTaskOnce(deps: LaunchDependencies, ctx: ExtensionCont
   const brief = `${description}\n${task}`;
   const phase = inferPhase(brief, params.phase);
   const localDecision = classifyDelegation(brief, phase);
-  const decision = params.route === undefined ? await classifyWithJev(brief, phase, localDecision, ctx) : localDecision;
+  const decision = params.route === undefined ? await classifyRoute(brief, phase, localDecision, ctx, {}, routingClassifierConfig(deps.pi.getSettings?.())) : localDecision;
   deps.recordDecision(task, decision);
   const requestedRoute = params.route?.trim() ?? classifyModelRoute(task, decision);
   const cwd = resolve(params.cwd ?? ctx.cwd);

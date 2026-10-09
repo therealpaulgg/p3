@@ -37,7 +37,25 @@ Telegram replies default to off. Run `/notify replies-on` or `/notify replies-of
 
 ## Model routing and usage failover
 
-The router considers Haiku 5.5, Sonnet 5.5, Opus 5.5, GPT-6 Luna, and GPT-6.1 Sol. Jev judges the required capability from ambiguity, dependency horizon, verification difficulty, and failure consequences; code selects an eligible provider/model. Exact, cheaply checkable edits may use small models. Ordinary UI or debugging work does not automatically require Opus. Without Jev, a conservative local policy applies.
+The router considers Haiku 5.5, Sonnet 5.5, Opus 5.5, GPT-6 Luna, and GPT-6.1 Sol. A routing classifier judges the required capability from ambiguity, dependency horizon, verification difficulty, and failure consequences; code selects an eligible provider/model. Exact, cheaply checkable edits may use small models. Ordinary UI or debugging work does not automatically require Opus. Without a classifier, a conservative local policy applies.
+
+The routing classifier is any native Pi [classifier model](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models), set as an ordered `provider/model` list under `p3.routingClassifiers` in `~/.pi/agent/settings.json` or a project's `.pi/settings.json`:
+
+```json
+{
+  "p3": {
+    "routingClassifiers": ["openai/gpt-6-luna", "cloudflare-workers-ai/@cf/cloudflare/clef", "typesafe/jev-latest"]
+  }
+}
+```
+
+- The provider is the text before the first `/`; the rest is the model ID (`openrouter/~typesafe/jev-latest`); llama.cpp and custom-provider classifiers work the same way.
+- Unset uses `["typesafe/jev-latest", "cloudflare-workers-ai/typesafe/jev"]`. `[]` disables classification and uses only the local policy.
+- Entries without Pi credentials are skipped. An error or non-`stop` result tries the next entry; all attempts share one 5-second deadline. A valid answer below 0.7 confidence, or `unknown`, is final and keeps the local tier.
+- A malformed setting, or all entries failing, falls back to the local policy and is noted in the launch rationale.
+- An explicit `route` never consults the classifier. Eligibility, provider preference, failover, and the High effort cap are unchanged.
+
+Peer-message interruption and Jev compaction still use Jev and do not read this setting.
 
 Automatic subagents start on the selected route through `p3-failover/<route>`. Recognized provider usage exhaustion, or persistent rate limits/overload after Pi's retries, may cause one cross-provider switch per assignment. The transcript and completed tools are retained; only the failed assistant attempt is omitted from model context. Shared cooldowns prevent new automatic assignments repeatedly choosing the unavailable provider. Telemetry reports the physical model and effort actually dispatched. Explicit physical-model selections remain fixed.
 
