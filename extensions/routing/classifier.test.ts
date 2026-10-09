@@ -134,6 +134,28 @@ describe("routing classification", () => {
     expect(result.target).toBe("sonnet");
     expect(result.rationale).toContain("Routing classifier config ignored");
   });
+  test("a valid strong answer with no eligible strong route rejects instead of trying a weaker fallback", async () => {
+    const { ctx, calls } = fakeCtx(["typesafe/jev-latest", "openai/gpt-6-luna"], (name) => choice(name === "typesafe/jev-latest" ? "strong" : "small", 0.95));
+    const local = classifyDelegation("Rename this field exactly", "implement");
+    expect(local.tier).not.toBe("strong");
+    await expect(classifyRoute("Rename this field exactly", "implement", local, ctx, { eligibleRoutes: ["haiku", "luna"] }, routingClassifierConfig({ p3: { routingClassifiers: ["typesafe/jev-latest", "openai/gpt-6-luna"] } })))
+      .rejects.toThrow("No eligible route for strong");
+    expect(calls).toEqual(["typesafe/jev-latest"]);
+  });
+  test("confidence above 1 is malformed and falls through rather than being accepted", async () => {
+    const { ctx, calls } = fakeCtx(["typesafe/jev-latest", "openai/gpt-6-luna"], (name) => name === "typesafe/jev-latest" ? choice("strong", 1.5) : choice("small", 0.9));
+    const result = await classifyRoute("Rename this field exactly", "implement", classifyDelegation("Rename this field exactly", "implement"), ctx, { eligibleRoutes: ["haiku", "opus"] }, routingClassifierConfig({ p3: { routingClassifiers: ["typesafe/jev-latest", "openai/gpt-6-luna"] } }));
+    expect(calls).toEqual(["typesafe/jev-latest", "openai/gpt-6-luna"]);
+    expect(result.tier).toBe("small");
+    expect(result.target).toBe("haiku");
+  });
+  test("confidence above 1 from the only classifier keeps local policy and names the problem", async () => {
+    const { ctx } = fakeCtx(["typesafe/jev-latest"], () => choice("small", 1.01));
+    const local = classifyDelegation("Implement the documented integration", "implement");
+    const result = await classifyRoute("Implement the documented integration", "implement", local, ctx, { eligibleRoutes: ["haiku", "sonnet"] });
+    expect(result.tier).toBe(local.tier);
+    expect(result.rationale).toContain("malformed confidence 1.01");
+  });
   test("never emits an ineligible or weaker target", async () => {
     await expect(classifyRoute("Diagnose a race condition", "other", classifyDelegation("Diagnose a race condition"), ctxWithoutClassifiers, { eligibleRoutes: ["haiku"] })).rejects.toThrow("No eligible route for strong");
   });
