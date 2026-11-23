@@ -438,6 +438,27 @@ export default function modelRoutingExtension(pi: ExtensionAPI) {
       (route.provider === "openai-codex" && hasAuth(ctx, "openai", route.model));
   };
 
+  const resolveExactModel = (ctx: ExtensionContext, requested: string, effort?: ThinkingLevel) => {
+    const slash = requested.indexOf("/");
+    const candidates = slash > 0
+      ? [ctx.modelRegistry.find(requested.slice(0, slash), requested.slice(slash + 1))].filter(Boolean)
+      : ctx.modelRegistry.getAll().filter((model) => model.id === requested);
+    if (candidates.length === 0) throw new Error(`Model unavailable: ${requested}`);
+    if (candidates.length > 1) throw new Error(`Model ID ${requested} is ambiguous; specify provider/model`);
+    const model = candidates[0]!;
+    if (!ctx.modelRegistry.hasConfiguredAuth(model)) throw new Error(`No credentials available for ${model.provider}/${model.id}`);
+    return {
+      route: requested,
+      config: {
+        label: model.name,
+        provider: model.provider,
+        model: model.id,
+        thinking: effort ?? (model.reasoning ? "medium" as const : "off" as const),
+        purpose: "User-selected model",
+      },
+    };
+  };
+
   const resolveRoute = (ctx: ExtensionContext, requested: string, explicit: boolean, effort?: ThinkingLevel, tier?: CapabilityTier) => {
     if (effort !== undefined && !["off", "minimal", "low", "medium", "high"].includes(effort)) throw new Error(`Effort ${String(effort)} is unsupported; maximum effort is high`);
     if (!explicit || Object.prototype.hasOwnProperty.call(routes, requested)) {
@@ -463,24 +484,7 @@ export default function modelRoutingExtension(pi: ExtensionAPI) {
       throw new Error(`openai-codex/${requested.slice("openai/".length)} is available; use it instead of ${requested}`);
     }
 
-    const slash = requested.indexOf("/");
-    const candidates = slash > 0
-      ? [ctx.modelRegistry.find(requested.slice(0, slash), requested.slice(slash + 1))].filter(Boolean)
-      : ctx.modelRegistry.getAll().filter((model) => model.id === requested);
-    if (candidates.length === 0) throw new Error(`Model unavailable: ${requested}`);
-    if (candidates.length > 1) throw new Error(`Model ID ${requested} is ambiguous; specify provider/model`);
-    const model = candidates[0]!;
-    if (!ctx.modelRegistry.hasConfiguredAuth(model)) throw new Error(`No credentials available for ${model.provider}/${model.id}`);
-    return {
-      route: requested,
-      config: {
-        label: model.name,
-        provider: model.provider,
-        model: model.id,
-        thinking: effort ?? (model.reasoning ? "medium" as const : "off" as const),
-        purpose: "User-selected model",
-      },
-    };
+    return resolveExactModel(ctx, requested, effort);
   };
 
   const watchHerdrTask = (task: TaskHandle, baselineResult = "") => startHerdrWatcher({
@@ -499,7 +503,12 @@ export default function modelRoutingExtension(pi: ExtensionAPI) {
     return { content: [{ type: "text" as const, text: result.text }], details: result.details };
   };
 
-  registerIndependentAgentTools(pi, (ctx, requested) => resolveRoute(ctx, requested, true).config);
+  registerIndependentAgentTools(pi, (ctx, requested) => {
+    if (!Object.prototype.hasOwnProperty.call(routes, requested)) return resolveExactModel(ctx, requested).config;
+    const route = routes[requested as RouteName];
+    resolveExactModel(ctx, `${route.provider}/${route.model}`);
+    return route;
+  });
 
   pi.registerTool({
     name: "message_parent",
