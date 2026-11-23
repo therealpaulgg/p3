@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { routes } from "./policy.ts";
 import routing from "../model-routing.ts";
 import { setHerdrTestTransportForTests } from "./herdr.ts";
 
@@ -74,6 +75,8 @@ const fixture = async (alreadyOpen = false) => {
   const models = [
     { provider: "anthropic", id: "claude-opus-5-5", name: "Opus", reasoning: true },
     { provider: "custom", id: "exact-model", name: "Exact", reasoning: false },
+    { provider: "openai", id: "gpt-6.2-sol", name: "Sol", reasoning: true },
+    { provider: "openai-codex", id: "gpt-6.2-sol", name: "Sol", reasoning: true },
   ];
   const ctx: any = { cwd: temp, model: { provider: "parent", id: "inherited" }, modelRegistry: {
     find: (provider: string, id: string) => models.find((model) => model.provider === provider && model.id === id),
@@ -89,6 +92,8 @@ for (const [action, model, expected, thinking] of [
   ["open", undefined, "parent/inherited", "high"],
   ["create", "opus", "anthropic/claude-opus-5-5", "medium"],
   ["open", "custom/exact-model", "custom/exact-model", "off"],
+  ["create", "openai/gpt-6.2-sol", "openai/gpt-6.2-sol", "medium"],
+  ["open", "openai-codex/gpt-6.2-sol", "openai-codex/gpt-6.2-sol", "medium"],
   ["create", "exact-model", "custom/exact-model", "off"],
 ] as const) {
   test(`workspace_agent ${action} launches ${model ?? "inherited model"}`, async () => {
@@ -124,3 +129,12 @@ for (const kind of ["unavailable", "ambiguous", "unauthenticated"] as const) {
     expect(f.socketCalls).toEqual([]); expect(f.calls).toEqual([]);
   });
 }
+
+test("workspace_agent never substitutes another provider for an alias", async () => {
+  const f = await fixture();
+  f.models.push({ provider: "openai", id: routes.sol.model, name: "Sol", reasoning: true });
+  const result = await f.launch({ model: "sol" });
+  expect(result.isError).toBe(true);
+  expect(result.content[0].text).toContain(`Model unavailable: ${routes.sol.provider}/${routes.sol.model}`);
+  expect(f.socketCalls).toEqual([]); expect(f.calls).toEqual([]);
+});
