@@ -120,7 +120,7 @@ Subagent list/status includes `available_actions` and `nextAction`. `unknown` me
 
 ### Durable independent branch work
 
-`workspace_agent` accepts an optional `model` for both `create` and `open`: a route alias (`sol`, `luna`, `opus`, `sonnet`, `haiku`), `provider/model`, or an unambiguous model ID, using the same explicit model/provider resolution as `subagent`. Explicit selections use that route's thinking default and do not silently fall back; unavailable, ambiguous, or unauthenticated selections fail before worktree placement. Omit `model` to preserve inheritance of the primary's current model and thinking level. This launch option does not override saved-session models during resume.
+`workspace_agent` accepts an optional `model` for both `create` and `open`: a route alias (`sol`, `luna`, `opus`, `sonnet`, `haiku`), `provider/model`, or an unambiguous model ID, for example `model: "openai-codex/gpt-6.2-sol"`. An alias requires its configured provider even if another provider offers the same model. Explicit selections use that route's thinking default and do not silently fall back; unavailable, ambiguous, or unauthenticated selections fail before worktree placement. Omit `model` to preserve inheritance of the primary's current model and thinking level. This launch option does not override saved-session models during resume.
 
 New `workspace_agent` launches record their objective, canonical repository/branch, checkout, and exact saved executor under the Pi agent directory's `state/branch-work/`. These records are independent of the launching primary's lifetime; existing worktrees are not guessed into records. An already recorded branch refuses a second executor.
 
