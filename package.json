@@ -21,6 +21,7 @@
       "./extensions/cache-warming-identity.ts",
       "./extensions/claude-connectors.ts",
       "./extensions/claude-artifacts.ts",
+      "./extensions/cli-proxy-api.ts",
       "./extensions/github-pr-watch.ts",
       "./extensions/jev-compaction.ts",
       "./extensions/model-routing.ts",
