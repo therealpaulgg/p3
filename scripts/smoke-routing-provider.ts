@@ -170,7 +170,7 @@ export default function smokeProvider(pi: ExtensionAPI) {
   const response = (context: any, options: any, _state: any, model: any) => { faux.appendResponses([response]); trace("provider", { model: model.id, reasoning: options?.reasoning, users: context.messages.filter((m: any) => m.role === "user").map(text) }); return decide(model.id === "worker-alt" ? "worker" : model.id, context.messages); };
   faux.setResponses([response]);
   pi.registerProvider(faux.provider);
-  const automatic = fauxProvider({ provider: "openai-codex", api: "smoke-auto-api", models: [{ id: "gpt-6.1-sol", reasoning: false, input: ["text"] }] });
+  const automatic = fauxProvider({ provider: "openai-codex", api: "smoke-auto-api", models: [{ id: "gpt-6.2-sol", reasoning: false, input: ["text"] }] });
   const autoResponse = (context: any) => {
     automatic.appendResponses([autoResponse]);
     trace("auto_provider", { users: context.messages.filter((m: any) => m.role === "user").map(text) });
