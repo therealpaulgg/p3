@@ -279,7 +279,7 @@ for (const module of ["node:http", "node:https"]) { const api = require(module);
       const task = await completed(session, launch.assignmentId);
       assert.equal(task.routeExplicit, false);
       assert.equal(task.route, "sol");
-      assert.equal(task.model, "openai-codex/gpt-6.1-sol");
+      assert.equal(task.model, "openai-codex/gpt-6.2-sol");
       assert.equal(task.costKnown, true); assert.equal(task.costComplete, true);
       assert.ok(task.estimatedCost > 0);
       const snapshot = await manifest(session);
