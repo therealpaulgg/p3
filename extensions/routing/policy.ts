@@ -24,7 +24,7 @@ export interface RoutingDecision {
 }
 
 export const routes: Record<RouteName, Route> = {
-  sol: { label: "Sol", provider: "openai-codex", model: "gpt-6.1-sol", thinking: "medium", purpose: "Standard coding and demanding reasoning" },
+  sol: { label: "Sol", provider: "openai-codex", model: "gpt-6.2-sol", thinking: "medium", purpose: "Standard coding and demanding reasoning" },
   luna: { label: "Luna", provider: "openai-codex", model: "gpt-6-luna", thinking: "high", purpose: "Exact, bounded, cheaply checkable work" },
   opus: { label: "Opus", provider: "anthropic", model: "claude-opus-5-5", thinking: "medium", purpose: "Ambiguous, long-horizon, hard-to-check or consequential work" },
   sonnet: { label: "Sonnet", provider: "anthropic", model: "claude-sonnet-5-5", thinking: "high", purpose: "Well-scoped coding and ordinary investigation" },
