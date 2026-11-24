@@ -17,10 +17,13 @@ pi -e git:github.com/therealpaulgg/p3
 ## Included resources
 
 - Advisor, model-routing, task-list, tutor-mode, and workflow extensions
+- Automatic discovery of models from a local CLIProxyAPI instance
 - Automatic session naming
 - Direct claude.ai connector access and Telegram notification extensions
 - Catppuccin, Dracula, Synthwave, and Matrix themes
 - The `rpiv` workflow
+
+CLIProxyAPI discovery activates when `~/.config/cli-proxy-api/config.yaml` contains a v8 `access.api-keys` client key. Start the proxy on loopback, then open `/model` and search for `cli-proxy`. No `models.json` entries are needed. The extension uses token limits reported by CLIProxyAPI and published pricing from matching Pi catalog entries. Pricing is an estimate, not what an OAuth subscription charges; when no matching pricing is available Pi records a zero estimate.
 
 The connector extension calls Anthropic's connector catalog and MCP proxy directly. It defaults to its own OAuth credential; run `/connectors-login` to authorize it, `/connectors-status` to inspect both available credential sources, and `/connectors-logout` to remove the direct credential. Use `/connectors-mode direct` or `/connectors-mode claude-code` to choose between the extension's credential and Claude Code's existing credential file. Both modes call the proxy directly; neither launches Claude Code. Direct credentials are stored at `~/.config/pi-claude-connectors/credentials.json` with mode `0600` and refreshed under a cross-process lock. This uses Anthropic's first-party OAuth client and undocumented connector endpoints, so it can change or be revoked without notice.
 
